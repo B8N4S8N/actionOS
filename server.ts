@@ -1,5 +1,4 @@
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import Database from "better-sqlite3";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
@@ -168,6 +167,55 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (client_id) REFERENCES Clients(id),
     FOREIGN KEY (author_id) REFERENCES Users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS Logs (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    site_id TEXT,
+    raw_content TEXT,
+    ai_summary TEXT,
+    tags TEXT,
+    needs_sync INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES Users(id),
+    FOREIGN KEY (site_id) REFERENCES Locations(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS Tasks_WorkOrders (
+    id TEXT PRIMARY KEY,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_by TEXT,
+    assigned_to TEXT,
+    assigned_to_role TEXT,
+    site_id TEXT,
+    category TEXT,
+    priority TEXT DEFAULT 'Medium',
+    title TEXT,
+    description TEXT,
+    status TEXT DEFAULT 'Open',
+    due_date DATETIME,
+    completed_at DATETIME,
+    linked_client_id TEXT,
+    linked_log_id TEXT,
+    FOREIGN KEY (created_by) REFERENCES Users(id),
+    FOREIGN KEY (assigned_to) REFERENCES Users(id),
+    FOREIGN KEY (site_id) REFERENCES Locations(id),
+    FOREIGN KEY (linked_client_id) REFERENCES Clients(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS Incidents_SOS (
+    id TEXT PRIMARY KEY,
+    triggered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    resolved_at DATETIME,
+    triggered_by TEXT NOT NULL,
+    site_id TEXT,
+    severity TEXT DEFAULT 'HIGH',
+    location_description TEXT,
+    status TEXT DEFAULT 'ACTIVE',
+    response_notes TEXT,
+    FOREIGN KEY (triggered_by) REFERENCES Users(id),
+    FOREIGN KEY (site_id) REFERENCES Locations(id)
   );
 `);
 
@@ -859,12 +907,62 @@ async function startServer() {
 
   // Trigger SOS
   app.post("/api/sos", (req, res) => {
-    const { site_id, user_id, severity_level } = req.body;
-    const id = Math.random().toString(36).substring(7);
-    db.prepare("INSERT INTO Incidents_SOS (id, site_id, user_id, status, severity_level) VALUES (?, ?, ?, ?, ?)").run(
-      id, site_id || "s1", user_id || "u1", "Active", severity_level || "High"
-    );
-    res.json({ success: true, id });
+    try {
+      const { site_id, user_id, severity, location_description } = req.body;
+      const id = Math.random().toString(36).substring(7);
+      db.prepare(
+        "INSERT INTO Incidents_SOS (id, site_id, triggered_by, status, severity, location_description) VALUES (?, ?, ?, ?, ?, ?)"
+      ).run(
+        id, 
+        site_id || "loc1", 
+        user_id || "system", 
+        "ACTIVE", 
+        severity || "HIGH",
+        location_description || "Unknown location"
+      );
+      res.json({ success: true, id, message: "SOS alert triggered successfully" });
+    } catch (error) {
+      console.error("SOS endpoint error:", error);
+      res.status(500).json({ error: "Failed to trigger SOS alert" });
+    }
+  });
+
+  // Get user data for auth context
+  app.get("/api/auth/user-data", (req, res) => {
+    try {
+      const { clerk_id } = req.query;
+      
+      if (!clerk_id) {
+        return res.status(400).json({ error: "clerk_id is required" });
+      }
+
+      // Get user's primary site and role from User_Access table
+      const userData = db.prepare(`
+        SELECT 
+          ua.user_id,
+          ua.location_id as site_id,
+          ua.role_id,
+          r.name as role_name
+        FROM User_Access ua
+        JOIN Roles r ON ua.role_id = r.id
+        WHERE ua.user_id = ?
+        LIMIT 1
+      `).get(clerk_id);
+
+      if (!userData) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      res.json({
+        user_id: userData.user_id,
+        site_id: userData.site_id,
+        role_id: userData.role_id,
+        role: userData.role_name
+      });
+    } catch (error) {
+      console.error("GET /api/auth/user-data error:", error);
+      res.status(500).json({ error: "Failed to fetch user data" });
+    }
   });
 
   // Action Button - Process via Gemini Flash and Pro
@@ -935,8 +1033,8 @@ async function startServer() {
         const proResult = JSON.parse(proResponse.text || "{}");
         if (proResult.needsTask) {
           const taskId = Math.random().toString(36).substring(7);
-          db.prepare("INSERT INTO Tasks_WorkOrders (id, assigned_to_role, priority, status, description, linked_log_id) VALUES (?, ?, ?, ?, ?, ?)").run(
-            taskId, proResult.assigned_to_role || "Facilities", proResult.priority || "Medium", "Open", proResult.description || "Auto-generated task", logId
+          db.prepare("INSERT INTO Tasks_WorkOrders (id, created_by, site_id, assigned_to_role, priority, status, description, linked_log_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
+            taskId, user_id || "system", site_id || "loc1", proResult.assigned_to_role || "Facilities", proResult.priority || "Medium", "Open", proResult.description || "Auto-generated task", logId
           );
           taskCreated = true;
         }
@@ -951,13 +1049,155 @@ async function startServer() {
     }
   });
 
+  // GET /api/logs - Recent activity logs
+  app.get("/api/logs", (req, res) => {
+    try {
+      const { site_id, limit = 50 } = req.query;
+      let query = "SELECT * FROM Logs ORDER BY created_at DESC LIMIT ?";
+      let params = [Number(limit)];
+      
+      if (site_id) {
+        query = "SELECT * FROM Logs WHERE site_id = ? ORDER BY created_at DESC LIMIT ?";
+        params = [site_id, Number(limit)];
+      }
+      
+      const logs = db.prepare(query).all(...params);
+      res.json({ logs });
+    } catch (error) {
+      console.error("GET /api/logs error:", error);
+      res.status(500).json({ error: "Failed to fetch logs" });
+    }
+  });
+
+  // GET /api/tasks - Tasks and work orders
+  app.get("/api/tasks", (req, res) => {
+    try {
+      const { site_id, status, assigned_to_role, limit = 50 } = req.query;
+      let conditions = [];
+      let params = [];
+      
+      if (site_id) {
+        conditions.push("site_id = ?");
+        params.push(site_id);
+      }
+      if (status) {
+        conditions.push("status = ?");
+        params.push(status);
+      }
+      if (assigned_to_role) {
+        conditions.push("assigned_to_role = ?");
+        params.push(assigned_to_role);
+      }
+      
+      let query = "SELECT * FROM Tasks_WorkOrders";
+      if (conditions.length > 0) {
+        query += " WHERE " + conditions.join(" AND ");
+      }
+      query += " ORDER BY created_at DESC LIMIT ?";
+      params.push(Number(limit));
+      
+      const tasks = db.prepare(query).all(...params);
+      res.json({ tasks });
+    } catch (error) {
+      console.error("GET /api/tasks error:", error);
+      res.status(500).json({ error: "Failed to fetch tasks" });
+    }
+  });
+
+  // GET /api/incidents - SOS incidents
+  app.get("/api/incidents", (req, res) => {
+    try {
+      const { site_id, status, limit = 50 } = req.query;
+      let conditions = [];
+      let params = [];
+      
+      if (site_id) {
+        conditions.push("site_id = ?");
+        params.push(site_id);
+      }
+      if (status) {
+        conditions.push("status = ?");
+        params.push(status);
+      }
+      
+      let query = "SELECT * FROM Incidents_SOS";
+      if (conditions.length > 0) {
+        query += " WHERE " + conditions.join(" AND ");
+      }
+      query += " ORDER BY triggered_at DESC LIMIT ?";
+      params.push(Number(limit));
+      
+      const incidents = db.prepare(query).all(...params);
+      res.json({ incidents });
+    } catch (error) {
+      console.error("GET /api/incidents error:", error);
+      res.status(500).json({ error: "Failed to fetch incidents" });
+    }
+  });
+
+  // GET /api/occupancy - Bed occupancy stats
+  app.get("/api/occupancy", (req, res) => {
+    try {
+      const { site_id = "loc1" } = req.query;
+      
+      // Get total rooms/capacity
+      const roomsResult = db.prepare("SELECT COUNT(*) as total FROM Rooms WHERE location_id = ?").get(site_id);
+      const totalRooms = roomsResult?.total || 0;
+      
+      // Get occupied beds (active roster entries without checkout)
+      const occupiedResult = db.prepare(
+        "SELECT COUNT(*) as occupied FROM Client_Roster WHERE location_id = ? AND check_out_date IS NULL"
+      ).get(site_id);
+      const occupied = occupiedResult?.occupied || 0;
+      
+      // Calculate available
+      const available = Math.max(0, totalRooms - occupied);
+      
+      res.json({
+        total: totalRooms,
+        occupied: occupied,
+        available: available,
+        site_id: site_id
+      });
+    } catch (error) {
+      console.error("GET /api/occupancy error:", error);
+      res.status(500).json({ error: "Failed to fetch occupancy" });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
+    try {
+      // Dynamically import Vite to avoid Windows ESM path issues
+      const { createServer: createViteServer } = await import("vite");
+      
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+        root: __dirname,
+        configFile: false, // Don't auto-load config file to avoid Windows path issues
+        plugins: [
+          (await import('@vitejs/plugin-react')).default(),
+          (await import('@tailwindcss/vite')).default()
+        ],
+        resolve: {
+          alias: {
+            '@': path.resolve(__dirname, '.'),
+          },
+        },
+        define: {
+          'process.env.VITE_CLERK_PUBLISHABLE_KEY': JSON.stringify(process.env.VITE_CLERK_PUBLISHABLE_KEY || ''),
+        }
+      });
+      app.use(vite.middlewares);
+      console.log("✓ Vite development server middleware loaded");
+    } catch (error) {
+      console.error("⚠ Failed to load Vite middleware:", error.message);
+      console.log("ℹ Running in API-only mode. Frontend must be built separately.");
+      console.log("ℹ To run frontend separately: npx vite");
+      // Fallback: serve static files if they exist
+      app.use(express.static(path.join(__dirname, "dist")));
+    }
   } else {
     app.use(express.static(path.join(__dirname, "dist")));
     app.get("*", (req, res) => {

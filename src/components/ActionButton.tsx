@@ -1,8 +1,10 @@
 import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Mic, Camera, Type, Send, X, Loader2 } from "lucide-react";
+import { useAuthSafe } from "../contexts/AuthContext";
 
 export default function ActionButton() {
+  const { userId, siteId } = useAuthSafe();
   const [isOpen, setIsOpen] = useState(false);
   const [mode, setMode] = useState<"text" | "voice" | "photo" | null>(null);
   const [input, setInput] = useState("");
@@ -16,14 +18,14 @@ export default function ActionButton() {
     
     setIsProcessing(true);
     try {
-      const res = await fetch("/api/logs", {
+      const res = await fetch("/api/action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_id: 1, // Admin for now
-          site_id: 1, // ARCHES Lodge
-          raw_content: input,
-          media_urls: []
+          user_id: userId,
+          site_id: siteId,
+          text: input,
+          imageBase64: null
         })
       });
       const data = await res.json();
@@ -32,6 +34,10 @@ export default function ActionButton() {
       setMode(null);
     } catch (error) {
       console.error(error);
+      setResult({ 
+        summary: "Error processing action. Please try again.", 
+        tasks: [] 
+      });
     } finally {
       setIsProcessing(false);
     }
