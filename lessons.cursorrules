@@ -7,7 +7,9 @@
 - Lazy DB via Proxy is OK if methods are bound to the real instance; do not
   pass the Proxy `receiver` into `Reflect.get`.
 - Vercel Preview builds often lack `DATABASE_URL` / `BETTER_AUTH_SECRET` at
-  build time. Runtime still needs both in the project env.
+  build time, or carry empty/short leftovers from an older stack. Build-time
+  placeholders must replace invalid values (not only `undefined` via `??`).
+  Runtime still needs real secrets in the project env.
 - Better Auth rejects sign-in without a trusted `Origin` matching
   `BETTER_AUTH_URL` (e.g. `localhost` vs `127.0.0.1`), and rate-limits
   `/sign-in/email`.

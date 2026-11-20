@@ -48,13 +48,56 @@ const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema>;
 
+const BUILD_DATABASE_URL = "postgresql://build:build@127.0.0.1:5432/build";
+const BUILD_AUTH_SECRET = "build-time-placeholder-secret-min-32-chars";
+
 let cached: Env | undefined;
 
-function isNextBuildPhase(): boolean {
+function isBuildTimeSoftFail(): boolean {
+  // Next sets NEXT_PHASE while collecting page data. Vercel also sets CI=1
+  // for the install/build step. Either is enough to allow placeholders when
+  // the project has missing or leftover-invalid secrets.
   return (
     process.env.NEXT_PHASE === "phase-production-build" ||
-    process.env.NEXT_PHASE === "phase-export"
+    process.env.NEXT_PHASE === "phase-export" ||
+    process.env.npm_lifecycle_event === "build" ||
+    (process.env.CI === "1" && process.env.VERCEL === "1")
   );
+}
+
+function looksLikeDatabaseUrl(value: string | undefined): value is string {
+  return Boolean(
+    value &&
+      (value.startsWith("postgres://") || value.startsWith("postgresql://")),
+  );
+}
+
+function looksLikeAuthSecret(value: string | undefined): value is string {
+  return Boolean(value && value.length >= 32);
+}
+
+function buildTimeEnv(): Env {
+  // Do not spread raw process.env for required fields — Vercel projects often
+  // carry empty strings or short leftovers from a previous stack, and `??`
+  // would keep those invalid values.
+  return envSchema.parse({
+    NODE_ENV: process.env.NODE_ENV,
+    DATABASE_URL: looksLikeDatabaseUrl(process.env.DATABASE_URL)
+      ? process.env.DATABASE_URL
+      : BUILD_DATABASE_URL,
+    DATABASE_POOL_MAX: process.env.DATABASE_POOL_MAX,
+    DATABASE_SSL: process.env.DATABASE_SSL,
+    BETTER_AUTH_SECRET: looksLikeAuthSecret(process.env.BETTER_AUTH_SECRET)
+      ? process.env.BETTER_AUTH_SECRET
+      : BUILD_AUTH_SECRET,
+    BETTER_AUTH_URL: process.env.BETTER_AUTH_URL || undefined,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY || undefined,
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+    OPENAI_MODEL: process.env.OPENAI_MODEL,
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY || undefined,
+    GEMINI_MODEL: process.env.GEMINI_MODEL,
+    SEED_DEMO_PASSWORD: process.env.SEED_DEMO_PASSWORD,
+  });
 }
 
 export function getEnv(): Env {
@@ -63,20 +106,8 @@ export function getEnv(): Env {
   const parsed = envSchema.safeParse(process.env);
 
   if (!parsed.success) {
-    // Vercel (and most CI) often has no runtime secrets at `next build`.
-    // Auth/db are lazy, but if anything still peeks at env during the build
-    // phase, fall back to placeholders so the compile can finish. Runtime
-    // requests still fail loudly when real secrets are missing.
-    if (isNextBuildPhase()) {
-      cached = envSchema.parse({
-        ...process.env,
-        DATABASE_URL:
-          process.env.DATABASE_URL ??
-          "postgresql://build:build@127.0.0.1:5432/build",
-        BETTER_AUTH_SECRET:
-          process.env.BETTER_AUTH_SECRET ??
-          "build-time-placeholder-secret-min-32-chars",
-      });
+    if (isBuildTimeSoftFail()) {
+      cached = buildTimeEnv();
       return cached;
     }
 
