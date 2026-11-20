@@ -13,3 +13,8 @@
 - Better Auth rejects sign-in without a trusted `Origin` matching
   `BETTER_AUTH_URL` (e.g. `localhost` vs `127.0.0.1`), and rate-limits
   `/sign-in/email`.
+- Instant Vercel Preview failures (status fails in ~1s, empty previewUrl)
+  after a Vite→Next rebuild usually mean the Vercel project still has a
+  Vite Framework / `vite build` / `dist` override. Pin Next.js in
+  `vercel.json` and clear those dashboard overrides. An anonymous
+  `vercel deploy --temporary` can prove the app itself builds.

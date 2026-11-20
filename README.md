@@ -131,7 +131,7 @@ npm run staff:create -- \
 2. Set `BETTER_AUTH_SECRET` (32+ random bytes). Leave `BETTER_AUTH_URL` unset to use `VERCEL_URL`, or set it to the production origin (e.g. `https://your-app.vercel.app`).
 3. Optionally set `OPENAI_API_KEY` or `GEMINI_API_KEY`.
 4. For a hosted demo, set `SHOW_DEMO_LOGINS=true` and run `npm run db:migrate` then `npm run db:seed` against the production database once (CI or a one-off shell).
-5. Deploy: Vercel auto-detects Next.js. No custom `vercel.json` is required.
+5. Deploy: `vercel.json` pins the framework to Next.js (`npm run build`). If this repo was previously a Vite app on the same Vercel project, open **Project Settings → General** and clear any leftover **Framework / Build Command / Output Directory** overrides (they used to target `vite build` + `dist`). Then redeploy.
 
 `next build` does **not** need secrets — auth and the DB pool initialize lazily. Runtime still requires `DATABASE_URL` and `BETTER_AUTH_SECRET` in the Vercel project (Preview + Production). Without a seed, the landing page still works; sign-in needs at least one provisioned account (`staff:create` or seed).
 
