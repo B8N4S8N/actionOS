@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  --color-brand-50: oklch(0.97 0.014 254.6);
+  --color-brand-100: oklch(0.93 0.032 255.6);
+  --color-brand-200: oklch(0.88 0.059 254.1);
+  --color-brand-300: oklch(0.81 0.093 251.8);
+  --color-brand-400: oklch(0.71 0.143 254.6);
+  --color-brand-500: oklch(0.62 0.188 259.8);
+  --color-brand-600: oklch(0.55 0.213 262.9);
+  --color-brand-700: oklch(0.49 0.206 264.1);
+  --color-brand-800: oklch(0.42 0.17 265.6);
+  --color-brand-900: oklch(0.38 0.136 265.5);
+}
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 antialiased;
+}
+
+/* Keyboard focus should always be obvious on shared staff workstations. */
+:focus-visible {
+  @apply outline-2 outline-offset-2 outline-brand-600;
+}

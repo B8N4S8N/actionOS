@@ -173,3 +173,16 @@ This file captures lessons learned during development to prevent repeating mista
 ---
 
 *Last updated: 2026-04-04*
+
+---
+
+## 2026-11-20: Rebuild — do not patch an AI Studio prototype
+
+**Problem:** The Google AI Studio export mixed a Vite SPA, Express, SQLite, Clerk, and marketing claims (HIPAA/SOC 2/fake testimonials) into one unmaintainable tree. Patching it kept shipping fiction as product.
+
+**Lesson:** When the foundation is wrong, replace the codebase and keep only the vision/copy that is still true. Seed only clearly fictional people and sites. Enforce roles on the server for every write, not by hiding UI. Make AI write paths two-step (propose → human confirm) so the app works without an API key via a keyword fallback.
+
+**Prevention:**
+- Prefer invite-only auth with a local seed over third-party keys for demos
+- Keep permission logic pure and unit-tested
+- Never claim compliance certifications that have not been audited

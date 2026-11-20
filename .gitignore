@@ -1,8 +1,43 @@
-node_modules/
-build/
-dist/
-coverage/
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+/dist
+
+# misc
 .DS_Store
+*.pem
 *.log
+*.db
+*.sqlite
+
+# env files — keep the example, never commit secrets
 .env*
 !.env.example
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# playwright / screenshot scratch
+/tmp/
+/test-results/
+/playwright-report/
