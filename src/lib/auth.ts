@@ -3,7 +3,7 @@ import { betterAuth } from "better-auth";
 import { nextCookies } from "better-auth/next-js";
 
 import { db, schema } from "@/db";
-import { env, getBaseUrl } from "@/lib/env";
+import { getBaseUrl, getEnv } from "@/lib/env";
 
 /**
  * Better Auth instance.
@@ -18,8 +18,14 @@ import { env, getBaseUrl } from "@/lib/env";
  * declared with `input: false` so an auth request can never set them, and
  * authorization re-reads them from the database on every request (see
  * `src/lib/actor.ts`) rather than trusting the session payload.
+ *
+ * During `next build`, `getEnv()` supplies placeholders when secrets are
+ * absent so Vercel can compile without runtime credentials. Runtime still
+ * requires real `BETTER_AUTH_SECRET` and `DATABASE_URL`.
  */
 export function buildAuth({ allowSignUp = false }: { allowSignUp?: boolean } = {}) {
+  const env = getEnv();
+
   return betterAuth({
     appName: "ActionOS",
     baseURL: getBaseUrl(),

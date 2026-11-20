@@ -128,12 +128,12 @@ npm run staff:create -- \
 ## Deploying to Vercel
 
 1. Create a Postgres database (Vercel Postgres, Neon, or Supabase) and put its URL in `DATABASE_URL`.
-2. Set `BETTER_AUTH_SECRET` (32+ random bytes) and `BETTER_AUTH_URL` to the production origin (e.g. `https://your-app.vercel.app`).
+2. Set `BETTER_AUTH_SECRET` (32+ random bytes). Leave `BETTER_AUTH_URL` unset to use `VERCEL_URL`, or set it to the production origin (e.g. `https://your-app.vercel.app`).
 3. Optionally set `OPENAI_API_KEY` or `GEMINI_API_KEY`.
 4. For a hosted demo, set `SHOW_DEMO_LOGINS=true` and run `npm run db:migrate` then `npm run db:seed` against the production database once (CI or a one-off shell).
 5. Deploy: Vercel auto-detects Next.js. No custom `vercel.json` is required.
 
-On first deploy without a seed, the landing page still works; sign-in needs at least one provisioned account (`staff:create` or seed).
+`next build` does **not** need secrets — auth and the DB pool initialize lazily. Runtime still requires `DATABASE_URL` and `BETTER_AUTH_SECRET` in the Vercel project (Preview + Production). Without a seed, the landing page still works; sign-in needs at least one provisioned account (`staff:create` or seed).
 
 ---
 

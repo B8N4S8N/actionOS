@@ -1,35 +1,79 @@
-import { drizzle } from "drizzle-orm/node-postgres";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
-import { env } from "@/lib/env";
+import { getEnv } from "@/lib/env";
 
 import * as schema from "./schema";
+
+export type Database = NodePgDatabase<typeof schema>;
 
 /**
  * One pool per process. Next.js hot-reloads modules in development, so the pool
  * is cached on `globalThis` to avoid leaking connections on every edit.
+ *
+ * The pool is created lazily so `next build` can finish when DATABASE_URL is
+ * only a build-time placeholder (see `getEnv`) and never opens a real socket.
  */
 const globalForDb = globalThis as unknown as {
   actionosPool?: Pool;
+  actionosDb?: Database;
 };
 
+function shouldUseSsl(url: string): boolean | { rejectUnauthorized: boolean } {
+  if (process.env.DATABASE_SSL === "true" || process.env.DATABASE_SSL === "1") {
+    return { rejectUnauthorized: true };
+  }
+  if (process.env.DATABASE_SSL === "false" || process.env.DATABASE_SSL === "0") {
+    return false;
+  }
+  try {
+    const host = new URL(url).hostname;
+    if (host === "localhost" || host === "127.0.0.1") return false;
+  } catch {
+    // Fall through — treat as remote.
+  }
+  return { rejectUnauthorized: true };
+}
+
 function createPool() {
+  const env = getEnv();
   return new Pool({
     connectionString: env.DATABASE_URL,
-    // Serverless functions get a small pool each; a long-running server can
-    // raise this with DATABASE_POOL_MAX.
     max: env.DATABASE_POOL_MAX,
-    ssl: env.DATABASE_SSL ? { rejectUnauthorized: true } : undefined,
+    ssl: shouldUseSsl(env.DATABASE_URL),
   });
 }
 
-export const pool = globalForDb.actionosPool ?? createPool();
-
-if (process.env.NODE_ENV !== "production") {
-  globalForDb.actionosPool = pool;
+function getPool(): Pool {
+  if (!globalForDb.actionosPool) {
+    globalForDb.actionosPool = createPool();
+  }
+  return globalForDb.actionosPool;
 }
 
-export const db = drizzle(pool, { schema });
+function getDb(): Database {
+  if (!globalForDb.actionosDb) {
+    globalForDb.actionosDb = drizzle(getPool(), { schema });
+  }
+  return globalForDb.actionosDb;
+}
 
-export type Database = typeof db;
+function bindLazy<T extends object>(resolve: () => T): T {
+  return new Proxy({} as T, {
+    get(_target, property) {
+      const instance = resolve();
+      const value = Reflect.get(instance, property, instance);
+      return typeof value === "function"
+        ? (value as (...args: unknown[]) => unknown).bind(instance)
+        : value;
+    },
+    has(_target, property) {
+      return property in (resolve() as object);
+    },
+  });
+}
+
+export const db: Database = bindLazy(getDb);
+export const pool: Pool = bindLazy(getPool);
+
 export { schema };

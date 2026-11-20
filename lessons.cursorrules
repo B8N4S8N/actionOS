@@ -1,0 +1,13 @@
+# Lessons (ActionOS rebuild)
+
+- Do not Proxy Better Auth's `auth` export for lazy init. `toNextJsHandler` and
+  bundling break on incomplete Proxy traps (`Object.keys` empty → runtime
+  "is not a function"). Prefer build-phase env placeholders in `getEnv()` so
+  `next build` can finish without secrets, and keep `auth = buildAuth()` eager.
+- Lazy DB via Proxy is OK if methods are bound to the real instance; do not
+  pass the Proxy `receiver` into `Reflect.get`.
+- Vercel Preview builds often lack `DATABASE_URL` / `BETTER_AUTH_SECRET` at
+  build time. Runtime still needs both in the project env.
+- Better Auth rejects sign-in without a trusted `Origin` matching
+  `BETTER_AUTH_URL` (e.g. `localhost` vs `127.0.0.1`), and rate-limits
+  `/sign-in/email`.

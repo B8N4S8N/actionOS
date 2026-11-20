@@ -50,12 +50,36 @@ export type Env = z.infer<typeof envSchema>;
 
 let cached: Env | undefined;
 
+function isNextBuildPhase(): boolean {
+  return (
+    process.env.NEXT_PHASE === "phase-production-build" ||
+    process.env.NEXT_PHASE === "phase-export"
+  );
+}
+
 export function getEnv(): Env {
   if (cached) return cached;
 
   const parsed = envSchema.safeParse(process.env);
 
   if (!parsed.success) {
+    // Vercel (and most CI) often has no runtime secrets at `next build`.
+    // Auth/db are lazy, but if anything still peeks at env during the build
+    // phase, fall back to placeholders so the compile can finish. Runtime
+    // requests still fail loudly when real secrets are missing.
+    if (isNextBuildPhase()) {
+      cached = envSchema.parse({
+        ...process.env,
+        DATABASE_URL:
+          process.env.DATABASE_URL ??
+          "postgresql://build:build@127.0.0.1:5432/build",
+        BETTER_AUTH_SECRET:
+          process.env.BETTER_AUTH_SECRET ??
+          "build-time-placeholder-secret-min-32-chars",
+      });
+      return cached;
+    }
+
     const details = parsed.error.issues
       .map((issue) => `  - ${issue.path.join(".") || "(root)"}: ${issue.message}`)
       .join("\n");
